@@ -1,2 +1,6 @@
 torch
 numpy
+rasterio
+matplotlib
+icecream
+tqdm
