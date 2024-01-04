@@ -1,7 +1,7 @@
 """ Full assembly of the parts to form the complete network """
 """Taken from https://github.com/milesial/Pytorch-UNet/blob/master/unet/__init__.py"""
 
-from .unet_parts import *
+from unet_parts import *
 
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=False):

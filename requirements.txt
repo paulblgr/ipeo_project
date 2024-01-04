@@ -2,6 +2,8 @@ torch
 numpy
 rasterio
 matplotlib
-icecream
 tqdm
-PIL
+torchmetrics
+torchvision
+icecream
+pandas
