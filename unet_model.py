@@ -1,171 +1,48 @@
-import torch
-import torch.nn as nn
+""" Full assembly of the parts to form the complete network """
+"""Taken from https://github.com/milesial/Pytorch-UNet/blob/master/unet/__init__.py"""
 
+from .unet_parts import *
 
-class unet_pixel(torch.nn.Module):
-    def __init__(self) -> None:
-        super(unet_pixel, self).__init__()
-        self.channels = 32
-        self.leaky = 0.1
-        self.dropout = 0.3
+class UNet(nn.Module):
+    def __init__(self, n_channels, n_classes, bilinear=False):
+        super(UNet, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
 
-        self.shrink_1 = nn.Sequential(
-            nn.Conv2d(3, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.shrink_2 = nn.Sequential(
-            nn.Conv2d(self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(2 * self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(2 * self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.shrink_3 = nn.Sequential(
-            nn.Conv2d(2 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(4 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(4 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.shrink_4 = nn.Sequential(
-            nn.Conv2d(4 * self.channels, 8 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(8 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(8 * self.channels, 8 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(8 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(8 * self.channels, 8 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(8 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.MaxPool2d(2),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.bottom_conv = nn.Sequential(
-            nn.Conv2d(8 * self.channels, 16 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(16 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Dropout2d(self.dropout),
-            nn.Conv2d(16 * self.channels, 16 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(16 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(16 * self.channels, 16 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(16 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(16 * self.channels, 16 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(16 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Dropout2d(self.dropout),
-            nn.Conv2d(16 * self.channels, 8 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(8 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-        )
-
-        self.up_3 = nn.Sequential(
-            nn.Conv2d(16 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(4 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(4 * self.channels, 4 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(4 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.ConvTranspose2d(4 * self.channels, 4 * self.channels, 3, 2, 1, 1),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.up_2 = nn.Sequential(
-            nn.Conv2d(8 * self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(2 * self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(2 * self.channels, 2 * self.channels, 3, 1, 1),
-            nn.BatchNorm2d(2 * self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.ConvTranspose2d(2 * self.channels, 2 * self.channels, 3, 2, 1, 1),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.up_1 = nn.Sequential(
-            nn.Conv2d(4 * self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels, track_running_stats=False),
-            nn.LeakyReLU(self.leaky),
-            nn.ConvTranspose2d(self.channels, self.channels, 3, 2, 1, 1),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.final_conv = nn.Sequential(
-            nn.Conv2d(2 * self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels),
-            nn.LeakyReLU(self.leaky),
-            nn.Conv2d(self.channels, self.channels, 3, 1, 1),
-            nn.BatchNorm2d(self.channels),
-            nn.LeakyReLU(self.leaky),
-            nn.ConvTranspose2d(self.channels, self.channels, 3, 2, 1, 1),
-            nn.Dropout2d(self.dropout),
-        )
-
-        self.channel_adapter = nn.Sequential(
-            nn.Conv2d(self.channels, 1, 3, 1, 1), nn.Sigmoid()
-        )
-
-        self._init_weights()
-
-    def _init_weights(self):
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.ConvTranspose2d):
-                nn.init.kaiming_normal_(module.weight.data)
-                module.bias.data.zero_()
+        self.inc = (DoubleConv(n_channels, 64))
+        self.down1 = (Down(64, 128))
+        self.down2 = (Down(128, 256))
+        self.down3 = (Down(256, 512))
+        factor = 2 if bilinear else 1
+        self.down4 = (Down(512, 1024 // factor))
+        self.up1 = (Up(1024, 512 // factor, bilinear))
+        self.up2 = (Up(512, 256 // factor, bilinear))
+        self.up3 = (Up(256, 128 // factor, bilinear))
+        self.up4 = (Up(128, 64, bilinear))
+        self.outc = (OutConv(64, n_classes))
 
     def forward(self, x):
-        shrink1 = self.shrink_1(x)
-        shrink2 = self.shrink_2(shrink1)
-        shrink3 = self.shrink_3(shrink2)
-        shrink4 = self.shrink_4(shrink3)
-        up4 = self.bottom_conv(shrink4)
-        up4 = torch.cat((up4, shrink4), dim=1)
-        up3 = self.up_3(up4)
-        up3 = torch.cat((up3, shrink3), dim=1)
-        up2 = self.up_2(up3)
-        up2 = torch.cat((up2, shrink2), dim=1)
-        up1 = self.up_1(up2)
-        up1 = torch.cat((up1, shrink1), dim=1)
-        output_3c = self.final_conv(up1)
-        output = self.channel_adapter(output_3c)
-        return output
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        logits = self.outc(x)
+        return logits
+
+    def use_checkpointing(self):
+        self.inc = torch.utils.checkpoint(self.inc)
+        self.down1 = torch.utils.checkpoint(self.down1)
+        self.down2 = torch.utils.checkpoint(self.down2)
+        self.down3 = torch.utils.checkpoint(self.down3)
+        self.down4 = torch.utils.checkpoint(self.down4)
+        self.up1 = torch.utils.checkpoint(self.up1)
+        self.up2 = torch.utils.checkpoint(self.up2)
+        self.up3 = torch.utils.checkpoint(self.up3)
+        self.up4 = torch.utils.checkpoint(self.up4)
+        self.outc = torch.utils.checkpoint(self.outc)
