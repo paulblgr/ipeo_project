@@ -22,4 +22,6 @@ rad.json
 TestResults.xml
 glaciers_mapping_downsampled
 pychache/
-model/*
+__pycache__/*
+__pycache__/
+models/*

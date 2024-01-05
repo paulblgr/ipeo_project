@@ -81,8 +81,6 @@ class PatchesDataset(torch.utils.data.Dataset):
 
 
         labs = [Image.fromarray(lab) for lab in rgb_labels]
-        for i,lab in enumerate(labs):
-            lab.save(f"test.png")
 
         imgs = [Image.fromarray(img) for img in rgb_images]
 
