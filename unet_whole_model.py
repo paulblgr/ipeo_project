@@ -12,10 +12,10 @@ from tqdm import tqdm
 class Model:
     def __init__(self) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.unet = UNet(n_channels=4, n_classes=2)
+        self.unet = UNet(n_channels=4, n_classes=1)
         self.unet.to(self.device)
         self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=3e-4)
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.BCEWithLogitsLoss()
         self.f1 = F1score().to(self.device)
         self.batch_size = 4
         self.all_histories = {
@@ -35,13 +35,13 @@ class Model:
     def training_step(self, data, target):
         self.optimizer.zero_grad()
         raw_pred = self.unet(data)
+        target = target.to(torch.float32)
         loss = self.criterion(raw_pred, target)
+        raw_pred = raw_pred.squeeze(1)
         loss.backward()
         self.optimizer.step()
 
-        train_pred = raw_pred.argmax(1)
-
-        return loss, train_pred
+        return loss, raw_pred
 
 
     def train_epoch(self, data_loader):
@@ -56,27 +56,28 @@ class Model:
         train_losses = []
         train_preds = []
         self.unet.train()
-        for data, target in tqdm(data_loader):
-            data, target = data.to(self.device), target.to(self.device)
-            loss, train_pred = self.training_step(data, target)
-            train_losses.append(loss.cpu().detach().numpy())
-            train_preds.append(train_pred)
-            del data
-            del target
+        for i, (data, target) in tqdm(enumerate(data_loader)):
+            if i < 5 :
+                data, target = data.to(self.device), target.to(self.device)
+                loss, train_pred = self.training_step(data, target)
+                train_losses.append(loss.cpu().detach().numpy())
+                train_preds.append(train_pred)
+                del data
+                del target
 
 
-        train_loss = np.stack(train_losses).mean()
-        f1 = self.f1(torch.cat(train_preds), data_loader[1]).detach().cpu().item()
+        train_loss = float(np.stack(train_losses).mean())
+        f1 =float(self.f1(torch.cat(train_preds), torch.cat(data_loader.dataset.get_groundtruths()) ).detach().cpu().item())
         torch.cuda.empty_cache()
 
         return train_loss, f1
     
-    def prediction_step(self, data, target):
+    def evaluation_step(self, data, target):
         raw_pred = self.unet(data)
+        target = target.to(torch.float32)
         loss = self.criterion(raw_pred, target)
-        pred = raw_pred.argmax(1)
-
-        return loss, pred
+        raw_pred = raw_pred.squeeze(1)
+        return loss, raw_pred
 
 
     def validation_epoch(self, data_loader):
@@ -89,22 +90,24 @@ class Model:
             _type_: Validation loss and validation F1-score
         """
         val_losses = []
-        preds = []
+        test_preds = []
         self.unet.eval()
         with torch.no_grad():
-            for (data, target) in tqdm(data_loader):
-                data, target = data.to(self.device), target.to(self.device)
-                loss, pred = self.prediction_step(data, target)
-                val_losses.append(loss.cpu().detach().numpy())
-                preds.append(pred)
-                del data
-                del target
+            for i , (data, target) in tqdm(enumerate(data_loader)):
+                if i < 3 :
+                    data, target = data.to(self.device), target.to(self.device)
+                    loss, pred = self.evaluation_step(data, target)
+                    val_losses.append(loss.cpu().detach().numpy())
+                    test_preds.append(pred)
+                    del data
+                    del target
 
-        val_losses = np.stack(val_losses).mean()
-        f1 = self.f1(torch.cat(preds), data_loader[1]).detach().cpu().item()
+        val_loss = float(np.stack(val_losses).mean())
+
+        f1 = float(self.f1(torch.cat(test_preds), torch.cat(data_loader.dataset.get_groundtruths())).detach().cpu().item())
         torch.cuda.empty_cache()
         
-        return val_losses, f1
+        return val_loss, f1
 
     def add_history(self, t, f, type):
         """Adds an input to the history of the model.
@@ -117,7 +120,7 @@ class Model:
         self.all_histories[type]["Train loss"].append(t)
         self.all_histories[type]["F1_score"].append(f)
 
-    def train(self, train_set, val_set, num_epochs=10, train_percent=0.9):
+    def train(self, train_set, val_set, num_epochs=10):
         """Trains the model using the provided data and target. Saves the history of the training.
         """
         
@@ -132,7 +135,7 @@ class Model:
         for epoch in range(num_epochs):
             t, f = self.train_epoch(train_loader)
             self.add_history(t, f, "Train")
-            t, f = self.train_epoch(val_loader)
+            t, f = self.validation_epoch(val_loader)
             self.add_history(t, f, "Validation")
             self.save_model(f"model_epoch_{epoch}")
             print(
@@ -146,6 +149,53 @@ class Model:
                 )
             )
         return self.all_histories
+    
+    def predict(self, img):
+        """Predicts the segmentation of the input image using the current state of the model.
+
+        Args:
+            img (_type_): Input image to be segmented in tensor format
+
+        Returns:
+            _type_: Segmentation of the input image in tensor format
+        """
+        img_input = img.unsqueeze(0)
+        self.unet.eval()
+        with torch.no_grad():
+            pred = self.unet(img_input.to(self.device))
+        
+        pred = pred.squeeze(1)
+        pred = torch.where(pred < 0.5, 0 ,1).cpu()
+
+        return pred
+    
+    def plot_prediction(self, img_dict):
+        """Plots the input image and it's segmentation.
+
+        Args:
+            img (_type_): Input image to be segmented in tensor format
+        """
+        img = img_dict[0]["patch"]
+        gt = img_dict[1]["patch"].numpy()
+
+        pred = self.predict(img)
+        rgb_img = (img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
+        rgb_pred = pred.numpy().astype(np.uint8).squeeze(0) * 255
+        rgb_gt = gt.astype(np.uint8).squeeze(0) * 255
+        
+        _ , axs = plt.subplots(1, 3, figsize=(15, 10))
+        axs[0].imshow(rgb_img)
+        axs[0].set_title("Image")
+        axs[0].axis("off")
+        axs[1].imshow(rgb_pred, cmap='gray')
+        axs[1].set_title("Prediction")
+        axs[1].axis("off")
+        axs[2].imshow(rgb_gt, cmap='gray')
+        axs[2].set_title("Groundtruth")
+        axs[2].axis("off")
+        plt.show()
+
+
 
     def save_model(self, model_name):
         """Saves the current state of the model. Automatically puts it in the correct folder using the proper file extensions.
@@ -179,19 +229,3 @@ class Model:
         with open(path.format(model_name, "json")) as file:
             data = file.read()
             self.all_histories = json.loads(data)
-
-    def import_data(self, train_path, label_path):
-        """Loads the data and formats it according to the model's architecture's requirements.
-
-        Args:
-            train_path (_type_): Path to train image folder.
-            label_path (_type_): Path to groundtruth image folder
-
-        Returns:
-            _type_: The formatted data ready to be used for the model training.
-        """
-        train_images = load_all_images(train_path)
-        target_images = load_all_images(label_path)
-        train_data = prepare_train(train_images)
-        target_data = prepare_test(target_images)
-        return train_data, target_data

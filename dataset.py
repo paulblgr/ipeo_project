@@ -44,10 +44,14 @@ class PatchesDataset(torch.utils.data.Dataset):
 
     def __init__(self, images, groundtruths):
         assert len(images) == len(groundtruths)
+        
         for img, gt in zip(images, groundtruths):
             assert (img['x'] == gt['x'] and img['y'] == gt['y'])
-        self.input = images
-        self.target = groundtruths
+        
+        self.input = images.copy()
+        
+        self.target = groundtruths.copy()
+        
 
         self.means, self.stds = self.compute_means_and_stds()
 
@@ -82,7 +86,7 @@ class PatchesDataset(torch.utils.data.Dataset):
 
         imgs = [Image.fromarray(img) for img in rgb_images]
 
-        fig, axs = plt.subplots(2, len(imgs) , figsize=(len(imgs)*5, 10))
+        _, axs = plt.subplots(2, len(imgs) , figsize=(len(imgs)*6, 10))
 
         for i in range(len(imgs)):
             axs[0,i].imshow(imgs[i])
