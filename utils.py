@@ -38,10 +38,10 @@ import pandas as pd
 def load_data(folder_path: str):
     patch_files = [f for f in os.listdir(folder_path) if f.endswith('.tif')]
     images = []
-    for patch_file in tqdm(patch_files):
+    for patch_file in tqdm(patch_files, desc="Loading data"):
         _,x,y = patch_file.split("_")
         y = y.split(".")[0]
-        patch = rio.open(os.path.join(folder_path,patch_file)).read()
+        patch = torch.tensor(rio.open(os.path.join(folder_path,patch_file)).read())
         image = {'x' : int(x), 'y' : int(y), 'patch' : patch, 'augmented' : False}
         images.append(image)
         

@@ -19,8 +19,7 @@ def transform_train_with_labels(image, label):
                            ]
     
     new_images = [transform(image) for transform in geometric_transforms]
-    print(label)
-    new_labels = [T.Compose([transform, T.ToTensor()])(label) for transform in geometric_transforms]
+    new_labels = [transform(label) for transform in geometric_transforms]
     # Other transformations applied only to the image
     '''other_transforms = T.Compose([
         T.RandomApply([T.GaussianBlur(kernel_size=3)]),
@@ -32,12 +31,16 @@ def transform_train_with_labels(image, label):
         # Apply transformations to both image and label
         image, label = geometric_transforms(image), geometric_transforms(label)'''
     
-    other_transforms = [T.RandomApply(T.GaussianBlur(kernel_size=3))]
-    other_transforms = [T.Compose([transform, T.ToTensor()]) for transform in other_transforms]
+    other_transforms = [T.RandomApply([T.GaussianBlur(kernel_size=3)])]
     new_images = new_images +  [transform(image) for transform in other_transforms]
     new_labels = new_labels + [label for _ in other_transforms]
                                       
     return new_images, new_labels
+
+def preprocess_function(image):
+    #image = T.ToPILImage()(image)
+    image = T.ToTensor()(image)
+    return image
 
 class PatchesDataset(torch.utils.data.Dataset):
 
@@ -45,14 +48,21 @@ class PatchesDataset(torch.utils.data.Dataset):
         assert len(images) == len(groundtruths)
         for img, gt in zip(images, groundtruths):
             assert (img['x'] == gt['x'] and img['y'] == gt['y'])
-        self.input = images
-        self.target = groundtruths
+        self.input = images.copy()
+        self.target = groundtruths.copy()
 
     def __len__(self):
         return len(self.input)
 
     def __getitem__(self, index):
         return self.input[index]['patch'], self.target[index]['patch']
+    
+    def get_pos(self, x, y):
+        res = []
+        for i in range(len(self.input)):
+            if self.input[i]['x'] == x and self.input[i]['y'] == y:
+                res.append((self.input[i], self.target[i]))
+        return res
 
     def get_images(self):
         return self.input
@@ -63,13 +73,18 @@ class PatchesDataset(torch.utils.data.Dataset):
     def augment(self, augmentation = transform_train_with_labels):
         all_new_imgs = []
         all_new_gts = []
-        for img,gt in zip(self.input, self.target): 
-            new_imgs = augmentation(img['patch'], gt['patch'])
+        for img,gt in tqdm(zip(self.input, self.target), total = len(self.input), desc = "Augmenting dataset"): 
+            new_imgs, new_gts = augmentation(img['patch'], gt['patch'])
 
             new_imgs = [{'x' : img['x'], 'y' : img['y'], 'patch' : new_img, 'augmented' : True} for new_img in new_imgs]
             new_gts = [{'x' : gt['x'], 'y' : gt['y'], 'patch' : new_gt, 'augmented' : True} for new_gt in new_gts]
             all_new_imgs.extend(new_imgs)
             all_new_gts.extend(new_gts)
+        
+        self.input.extend(all_new_imgs)
+        self.target.extend(all_new_gts)
 
-        return self
 
+    def preprocess(self, preprocess_function):
+        for img in tqdm(self.input, total = len(self.input), desc = "Preprocessing dataset"):
+            img['patch'] = preprocess_function(img['patch'])
