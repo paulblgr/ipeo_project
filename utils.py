@@ -3,9 +3,7 @@ import rasterio as rio
 import numpy as np
 from tqdm import tqdm
 import torch
-from dataset import PatchesDataset
 import random
-import pandas as pd
 
 # Convert arrays each array of a patch dict into a tensor
 '''def convert_to_tensors(input_dict):
