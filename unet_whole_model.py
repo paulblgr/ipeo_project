@@ -15,12 +15,12 @@ class Model:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.unet = UNet(n_channels=4, n_classes=1)
         self.unet.to(self.device)
-        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=8e-4)
+        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=4e-4)
         self.criterion = nn.BCEWithLogitsLoss()
         self.threshold = 0.
         self.model_name = model_name
         self.f1 = F1_score(threshold=self.threshold, device = self.device)
-        self.batch_size = 4
+        self.batch_size = 64
         self.all_histories = {
             "Train": {"Train loss": [], "F1_score": [], "Accuracy": []},
             "Validation": {"Train loss": [], "F1_score": [], "Accuracy" : []},
@@ -147,27 +147,10 @@ class Model:
         self.all_histories[type]["F1_score"].append(f)
         self.all_histories[type]["Accuracy"].append(a)
 
-    def train(self, train_set, val_set, num_epochs=10):
-        """Trains the model using the provided data and target. Saves the history of the training.
-        """
-        
-
-        train_loader = torch.utils.data.DataLoader(
-            train_set, batch_size=self.batch_size, shuffle=True
-        )
-        val_loader = torch.utils.data.DataLoader(
-            val_set, batch_size=self.batch_size, shuffle=True
-        )
-
-        for epoch in range(num_epochs):
-            t, f, a = self.train_epoch(train_loader)
-            self.add_history(t, f, a, "Train")
-            t, f, a = self.validation_epoch(val_loader)
-            self.add_history(t, f, a, "Validation")
-            self.save_model(f"{self.model_name}_epoch_{epoch+1}")
-            print(
+    def print_history(self,epoch, num_epochs):
+      print(
                 "Epoch: {:d}/{:d} Train_loss: {:.5f}, Train_F1: {:.5f}, Train_Accuracy: {:.15f}, Val_loss: {:.5f}, Val_F1: {:.5f}, Val_Accuracy: {:.5f}".format(
-                    epoch + 1,
+                    epoch,
                     num_epochs,
                     self.all_histories["Train"]["Train loss"][epoch],
                     self.all_histories["Train"]["F1_score"][epoch],
@@ -177,6 +160,33 @@ class Model:
                     self.all_histories["Validation"]["Accuracy"][epoch],
                 )
             )
+
+
+    def train(self, train_set, val_set, num_epochs=10):
+        """Trains the model using the provided data and target. Saves the history of the training.
+        """
+        
+        train_loader = torch.utils.data.DataLoader(
+            train_set, batch_size=self.batch_size, shuffle=True
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_set, batch_size=self.batch_size, shuffle=True
+        )
+        print("From initial model:")
+        t, f, a = self.validation_epoch(train_loader)
+        self.add_history(t, f, a, "Train")
+        t, f, a = self.validation_epoch(val_loader)
+        self.add_history(t, f, a, "Validation")
+        self.print_history(0,num_epochs)
+
+        for epoch in range(num_epochs):
+            t, f, a = self.train_epoch(train_loader)
+            self.add_history(t, f, a, "Train")
+            t, f, a = self.validation_epoch(val_loader)
+            self.add_history(t, f, a, "Validation")
+            self.save_model(f"{self.model_name}_epoch_{epoch+1}")
+            self.print_history(epoch + 1,num_epochs)
+
         return self.all_histories
     
     def predict(self, img):
@@ -198,7 +208,7 @@ class Model:
 
         return pred
     
-    def plot_prediction(self, img_dict):
+    def plot_prediction(self, img_dict, denormalize = True):
         """Plots the input image and it's segmentation.
 
         Args:
@@ -207,7 +217,8 @@ class Model:
         img = img_dict[0]["patch"]
         gt = img_dict[1]["patch"].numpy()
 
-        pred = self.predict(img)
+        pred = self.predict(img) 
+
         rgb_img = (img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_pred = pred.numpy().astype(np.uint8).squeeze(0) * 255
         rgb_gt = gt.astype(np.uint8).squeeze(0) * 255
@@ -225,20 +236,20 @@ class Model:
         plt.show()
 
     def plot_history(self):
-        _, axs = plt.subplots(3, 1, figsize=(18, 10))
+        _, axs = plt.subplots(3, 1, figsize=(18, 10), sharex = True)
 
-        axs[0].plot(self.all_histories['Train']['Train loss'], label='Train')
-        axs[0].plot(self.all_histories['Validation']['Train loss'], label='Validation')
+        axs[0].plot(self.all_histories['Train']['Train loss'][1:], label='Train')
+        axs[0].plot(self.all_histories['Validation']['Train loss'][1:], label='Validation')
         axs[0].set_title("Losses")
         axs[0].legend()
 
-        axs[1].plot(self.all_histories['Train']['F1_score'], label='Train')
-        axs[1].plot(self.all_histories['Validation']['F1_score'], label='Validation')
+        axs[1].plot(self.all_histories['Train']['F1_score'][1:], label='Train')
+        axs[1].plot(self.all_histories['Validation']['F1_score'][1:], label='Validation')
         axs[1].set_title("F1 scores")
         axs[1].legend()
 
-        axs[2].plot(self.all_histories['Train']['Accuracy'], label='Train')
-        axs[2].plot(self.all_histories['Validation']['Accuracy'], label='Validation')
+        axs[2].plot(self.all_histories['Train']['Accuracy'][1:], label='Train')
+        axs[2].plot(self.all_histories['Validation']['Accuracy'][1:], label='Validation')
         axs[2].set_title("Accuracies")
         axs[2].legend()
 
