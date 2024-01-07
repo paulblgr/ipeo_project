@@ -25,3 +25,6 @@ pychache/
 __pycache__/*
 __pycache__/
 models/*
+.tmp.driveupload/*
+.tmp.drivedownload/*
+

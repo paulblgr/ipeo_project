@@ -5,24 +5,28 @@ import torch.utils.data
 from dataset import *
 import json
 from unet_model import UNet
-from torchmetrics.classification import BinaryF1Score as F1score
+from torcheval.metrics import BinaryF1Score as F1_score
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt 
+import os
 
 class Model:
-    def __init__(self) -> None:
+    def __init__(self, model_name) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.unet = UNet(n_channels=4, n_classes=1)
         self.unet.to(self.device)
-        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=3e-4)
+        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=8e-4)
         self.criterion = nn.BCEWithLogitsLoss()
-        self.f1 = F1score().to(self.device)
+        self.threshold = 0.
+        self.model_name = model_name
+        self.f1 = F1_score(threshold=self.threshold, device = self.device)
         self.batch_size = 4
         self.all_histories = {
-            "Train": {"Train loss": [], "F1_score": []},
-            "Validation": {"Train loss": [], "F1_score": []},
+            "Train": {"Train loss": [], "F1_score": [], "Accuracy": []},
+            "Validation": {"Train loss": [], "F1_score": [], "Accuracy" : []},
         }
-        self.model_path = "models/"
+        self.model_path = f"models/{self.model_name}/"
+        os.makedirs(self.model_path, exist_ok=True)
 
     def get_history(self):
         """Returns the training (and validation history if validation was used) of the current model.
@@ -37,7 +41,6 @@ class Model:
         raw_pred = self.unet(data)
         target = target.to(torch.float32)
         loss = self.criterion(raw_pred, target)
-        raw_pred = raw_pred.squeeze(1)
         loss.backward()
         self.optimizer.step()
 
@@ -54,29 +57,41 @@ class Model:
             _type_: Train loss and F1-score of the epoch
         """
         train_losses = []
-        train_preds = []
+        true_positives = 0
+        false_positives = 0
+        false_negatives = 0
+        correct = 0
+        incorrect = 0 
         self.unet.train()
-        for i, (data, target) in tqdm(enumerate(data_loader)):
-            if i < 5 :
+        for data, target in tqdm(data_loader):
                 data, target = data.to(self.device), target.to(self.device)
                 loss, train_pred = self.training_step(data, target)
                 train_losses.append(loss.cpu().detach().numpy())
-                train_preds.append(train_pred)
+
+                processed_preds =torch.where(train_pred < self.threshold, 0 ,1)
+                correct += (processed_preds == target).sum().detach().cpu().item()
+                incorrect += (processed_preds != target).sum().detach().cpu().item()
+                true_positives += ((processed_preds == target) & (target == 1)).sum().detach().cpu().item()
+                false_positives += ((processed_preds != target) & (target == 0)).sum().detach().cpu().item()
+                false_negatives += ((processed_preds != target) & (target == 1)).sum().detach().cpu().item()
+
                 del data
                 del target
 
-
         train_loss = float(np.stack(train_losses).mean())
-        f1 =float(self.f1(torch.cat(train_preds), torch.cat(data_loader.dataset.get_groundtruths()) ).detach().cpu().item())
+        
+        f1 = 2 * true_positives / (2 * true_positives + false_positives + false_negatives)
+        
+        accuracy = correct / (correct + incorrect)
+
         torch.cuda.empty_cache()
 
-        return train_loss, f1
+        return train_loss, f1, accuracy
     
     def evaluation_step(self, data, target):
         raw_pred = self.unet(data)
         target = target.to(torch.float32)
         loss = self.criterion(raw_pred, target)
-        raw_pred = raw_pred.squeeze(1)
         return loss, raw_pred
 
 
@@ -90,35 +105,47 @@ class Model:
             _type_: Validation loss and validation F1-score
         """
         val_losses = []
-        test_preds = []
+        correct = 0
+        incorrect = 0
+        true_positives = 0
+        false_positives = 0
+        false_negatives = 0
         self.unet.eval()
         with torch.no_grad():
-            for i , (data, target) in tqdm(enumerate(data_loader)):
-                if i < 3 :
-                    data, target = data.to(self.device), target.to(self.device)
-                    loss, pred = self.evaluation_step(data, target)
-                    val_losses.append(loss.cpu().detach().numpy())
-                    test_preds.append(pred)
-                    del data
-                    del target
+            for data, target in tqdm(data_loader):
+                  data, target = data.to(self.device), target.to(self.device)
+                  loss, test_pred = self.evaluation_step(data, target)
+                  val_losses.append(loss.cpu().detach().numpy())
+
+                  processed_preds =torch.where(test_pred < self.threshold, 0 ,1)
+                  correct += (processed_preds == target).sum().detach().cpu().item()
+                  incorrect += (processed_preds != target).sum().detach().cpu().item()
+                  true_positives += ((processed_preds == target) & (target == 1)).sum().detach().cpu().item()
+                  false_positives += ((processed_preds != target) & (target == 0)).sum().detach().cpu().item()
+                  false_negatives += ((processed_preds != target) & (target == 1)).sum().detach().cpu().item()
+
+                  del data
+                  del target
 
         val_loss = float(np.stack(val_losses).mean())
-
-        f1 = float(self.f1(torch.cat(test_preds), torch.cat(data_loader.dataset.get_groundtruths())).detach().cpu().item())
-        torch.cuda.empty_cache()
+        f1 = 2 * true_positives / (2 * true_positives + false_positives + false_negatives)
+        accuracy = correct / (correct + incorrect)
         
-        return val_loss, f1
+        torch.cuda.empty_cache()
+        return val_loss, f1, accuracy
 
-    def add_history(self, t, f, type):
+    def add_history(self, t, f, a, type):
         """Adds an input to the history of the model.
 
         Args:
             t (_type_): loss of the epoch
             f (_type_): f1-score of the epoch
+            a (_type_)): accuracy of epoch
             type (_type_): Train or validation epoch (default: "Train")
         """
         self.all_histories[type]["Train loss"].append(t)
         self.all_histories[type]["F1_score"].append(f)
+        self.all_histories[type]["Accuracy"].append(a)
 
     def train(self, train_set, val_set, num_epochs=10):
         """Trains the model using the provided data and target. Saves the history of the training.
@@ -133,19 +160,21 @@ class Model:
         )
 
         for epoch in range(num_epochs):
-            t, f = self.train_epoch(train_loader)
-            self.add_history(t, f, "Train")
-            t, f = self.validation_epoch(val_loader)
-            self.add_history(t, f, "Validation")
-            self.save_model(f"model_epoch_{epoch}")
+            t, f, a = self.train_epoch(train_loader)
+            self.add_history(t, f, a, "Train")
+            t, f, a = self.validation_epoch(val_loader)
+            self.add_history(t, f, a, "Validation")
+            self.save_model(f"{self.model_name}_epoch_{epoch+1}")
             print(
-                "Epoch: {:d}/{:d} Train_loss: {:.5f}, Train_F1: {:.5f}, Val_loss: {:.5f}, Val_F1: {:.5f}".format(
+                "Epoch: {:d}/{:d} Train_loss: {:.5f}, Train_F1: {:.5f}, Train_Accuracy: {:.15f}, Val_loss: {:.5f}, Val_F1: {:.5f}, Val_Accuracy: {:.5f}".format(
                     epoch + 1,
                     num_epochs,
                     self.all_histories["Train"]["Train loss"][epoch],
                     self.all_histories["Train"]["F1_score"][epoch],
+                    self.all_histories["Train"]["Accuracy"][epoch],
                     self.all_histories["Validation"]["Train loss"][epoch],
                     self.all_histories["Validation"]["F1_score"][epoch],
+                    self.all_histories["Validation"]["Accuracy"][epoch],
                 )
             )
         return self.all_histories
@@ -165,7 +194,7 @@ class Model:
             pred = self.unet(img_input.to(self.device))
         
         pred = pred.squeeze(1)
-        pred = torch.where(pred < 0.5, 0 ,1).cpu()
+        pred = torch.where(pred < self.threshold, 0 ,1).cpu()
 
         return pred
     
@@ -195,7 +224,25 @@ class Model:
         axs[2].axis("off")
         plt.show()
 
+    def plot_history(self):
+        _, axs = plt.subplots(3, 1, figsize=(18, 10))
 
+        axs[0].plot(self.all_histories['Train']['Train loss'], label='Train')
+        axs[0].plot(self.all_histories['Validation']['Train loss'], label='Validation')
+        axs[0].set_title("Losses")
+        axs[0].legend()
+
+        axs[1].plot(self.all_histories['Train']['F1_score'], label='Train')
+        axs[1].plot(self.all_histories['Validation']['F1_score'], label='Validation')
+        axs[1].set_title("F1 scores")
+        axs[1].legend()
+
+        axs[2].plot(self.all_histories['Train']['Accuracy'], label='Train')
+        axs[2].plot(self.all_histories['Validation']['Accuracy'], label='Validation')
+        axs[2].set_title("Accuracies")
+        axs[2].legend()
+
+        plt.show()
 
     def save_model(self, model_name):
         """Saves the current state of the model. Automatically puts it in the correct folder using the proper file extensions.
@@ -203,7 +250,10 @@ class Model:
         Args:
             model_name (_type_): Name of the model to use for save file.
         """
+
+
         path = self.model_path + "{:s}.{:s}"
+
         torch.save(self.unet.state_dict(), path.format(model_name, "pth"))
         json_dict = json.dumps(self.all_histories)
         file = open(path.format(model_name, "json"), "w")

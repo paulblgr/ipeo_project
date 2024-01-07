@@ -42,7 +42,9 @@ def load_data(folder_path: str):
         patch = torch.tensor(rio.open(os.path.join(folder_path,patch_file)).read())
         image = {'x' : int(x), 'y' : int(y), 'patch' : patch, 'augmention' : 'No augmentation'}
         images.append(image)
-        
+    
+    images = sorted(images, key = lambda img : (img['x'], img['y']) )
+
     return images
 
 '''def get_patches_df(folder_path: str):

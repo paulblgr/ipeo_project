@@ -4,6 +4,7 @@ rasterio
 matplotlib
 tqdm
 torchmetrics
+torcheval
 torchvision
 icecream
 pandas
