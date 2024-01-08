@@ -19,25 +19,21 @@ def transform_train_with_labels(image, label):
 
     geometric_transforms =[T.RandomVerticalFlip(p=1),
                            T.RandomHorizontalFlip(p=1), #Je dirais ce serait bien d'ajouter rotation à 90° , 180° et 270°
-                           ]
+                           T.RandomRotation(degrees = (90,90)),
+                           T.RandomRotation(degrees = (180,180)),
+                           T.RandomRotation(degrees = (270,270))]
+    
+    geometric_transforms_name = ["Vertical flip", "Horizontal flip", "Rotation 90°", "Rotation 180°", "Rotation 270°"]
     
     new_images = [transform(image) for transform in geometric_transforms]
     new_labels = [transform(label) for transform in geometric_transforms]
     # Other transformations applied only to the image
-    '''other_transforms = T.Compose([
-        T.RandomApply([T.GaussianBlur(kernel_size=3)]),
-        T.ToTensor(), 
-        normalize
-    ])'''
     
-    '''if (rand > 5):
-        # Apply transformations to both image and label
-        image, label = geometric_transforms(image), geometric_transforms(label)'''
-    
-    other_transforms = [T.GaussianBlur(kernel_size=3)]
+    other_transforms = [T.GaussianBlur(kernel_size=3 , sigma = (0.5,1))]
+    other_transforms_name = ["Gaussian blur"]
     new_images = new_images +  [transform(image) for transform in other_transforms]
     new_labels = new_labels + [label for _ in other_transforms]                   
-    return new_images, new_labels, geometric_transforms , other_transforms
+    return new_images, new_labels, geometric_transforms_name , other_transforms_name
 
 
 class PatchesDataset(torch.utils.data.Dataset):
@@ -59,7 +55,7 @@ class PatchesDataset(torch.utils.data.Dataset):
         return len(self.input)
 
     def __getitem__(self, index):
-        return self.input[index]['patch'], self.target[index]['patch']
+        return self.input[index]['normalized_patch'], self.target[index]['patch']
     
     def get_at_pos(self, x, y):
         res = []
@@ -84,18 +80,17 @@ class PatchesDataset(torch.utils.data.Dataset):
 
         imgs = [Image.fromarray(img) for img in rgb_images]
 
-        _, axs = plt.subplots(2, len(imgs) , figsize=(len(imgs)*6, 10))
+        _, axs = plt.subplots(2, len(imgs) , figsize=(len(imgs)*9, 15))
 
         for i in range(len(imgs)):
             axs[0,i].imshow(imgs[i])
             axs[0,i].set_title(f"Image with {image_tranformations[i]}")
             axs[0,i].axis("off")
             axs[1,i].imshow(labs[i], cmap='gray')
-            axs[1,i].set_title(f"Label with {labels_tranformations[i]}")
+            axs[1,i].set_title(f"Groundtruth with {labels_tranformations[i]}")
             axs[1,i].axis("off")
 
         plt.show()
-
 
     def get_images(self):
         return [images['patch'] for images in self.input]
@@ -135,14 +130,7 @@ class PatchesDataset(torch.utils.data.Dataset):
 
         self.means, self.stds = self.compute_means_and_stds()
 
-
     def preprocess(self):
         normalize = T.Normalize(mean=self.means, std=self.stds)
         for img in tqdm(self.input, total = len(self.input), desc = "Preprocessing dataset"):
-            img['patch'] = normalize(img['patch'])
-    
-    def unnormalize(self):
-        denormalize = T.Normalize(mean=-self.means/self.stds, std=1/self.stds)
-        for img in tqdm(self.input, total = len(self.input), desc = "Unnormalizing dataset"):
-            img['patch'] = denormalize(img['patch'])
-        
+            img['normalized_patch'] = normalize(img['patch'])

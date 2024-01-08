@@ -114,10 +114,10 @@ class Model:
         with torch.no_grad():
             for data, target in tqdm(data_loader):
                   data, target = data.to(self.device), target.to(self.device)
-                  loss, test_pred = self.evaluation_step(data, target)
+                  loss, val_pred = self.evaluation_step(data, target)
                   val_losses.append(loss.cpu().detach().numpy())
 
-                  processed_preds =torch.where(test_pred < self.threshold, 0 ,1)
+                  processed_preds =torch.where(val_pred < self.threshold, 0 ,1)
                   correct += (processed_preds == target).sum().detach().cpu().item()
                   incorrect += (processed_preds != target).sum().detach().cpu().item()
                   true_positives += ((processed_preds == target) & (target == 1)).sum().detach().cpu().item()
@@ -162,10 +162,14 @@ class Model:
             )
 
 
-    def train(self, train_set, val_set, num_epochs=10):
+    def train(self, dataset,num_epochs=10):
         """Trains the model using the provided data and target. Saves the history of the training.
         """
         
+        total_size = len(dataset)
+        val_size = int(0.15 * total_size)
+        train_size = total_size - val_size
+        train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
         train_loader = torch.utils.data.DataLoader(
             train_set, batch_size=self.batch_size, shuffle=True
         )
@@ -214,46 +218,65 @@ class Model:
         Args:
             img (_type_): Input image to be segmented in tensor format
         """
+        normalized_img = img_dict[0]["normalized_patch"]
         img = img_dict[0]["patch"]
         gt = img_dict[1]["patch"].numpy()
 
-        pred = self.predict(img) 
+        pred = self.predict(normalized_img) 
 
+        normalized_rgb_img = (normalized_img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_img = (img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_pred = pred.numpy().astype(np.uint8).squeeze(0) * 255
         rgb_gt = gt.astype(np.uint8).squeeze(0) * 255
         
-        _ , axs = plt.subplots(1, 3, figsize=(15, 10))
+        _ , axs = plt.subplots(1, 4, figsize=(20, 10))
         axs[0].imshow(rgb_img)
         axs[0].set_title("Image")
         axs[0].axis("off")
-        axs[1].imshow(rgb_pred, cmap='gray')
-        axs[1].set_title("Prediction")
+        axs[1].imshow(normalized_rgb_img)
+        axs[1].set_title("Normalized image")
         axs[1].axis("off")
-        axs[2].imshow(rgb_gt, cmap='gray')
-        axs[2].set_title("Groundtruth")
+        axs[2].imshow(rgb_pred, cmap='gray')
+        axs[2].set_title("Prediction")
         axs[2].axis("off")
+        axs[3].imshow(rgb_gt, cmap='gray')
+        axs[3].set_title("Groundtruth")
+        axs[3].axis("off")
         plt.show()
 
     def plot_history(self):
+
+        x_axis = range(1,len(self.all_histories['Train']['Train loss']))
         _, axs = plt.subplots(3, 1, figsize=(18, 10), sharex = True)
 
-        axs[0].plot(self.all_histories['Train']['Train loss'][1:], label='Train')
-        axs[0].plot(self.all_histories['Validation']['Train loss'][1:], label='Validation')
+        axs[0].plot(x_axis,self.all_histories['Train']['Train loss'][1:], label='Train')
+        axs[0].plot(x_axis, self.all_histories['Validation']['Train loss'][1:], label='Validation')
         axs[0].set_title("Losses")
         axs[0].legend()
 
-        axs[1].plot(self.all_histories['Train']['F1_score'][1:], label='Train')
-        axs[1].plot(self.all_histories['Validation']['F1_score'][1:], label='Validation')
+        axs[1].plot(x_axis, self.all_histories['Train']['F1_score'][1:], label='Train')
+        axs[1].plot(x_axis, self.all_histories['Validation']['F1_score'][1:], label='Validation')
         axs[1].set_title("F1 scores")
         axs[1].legend()
 
-        axs[2].plot(self.all_histories['Train']['Accuracy'][1:], label='Train')
-        axs[2].plot(self.all_histories['Validation']['Accuracy'][1:], label='Validation')
+        axs[2].plot(x_axis, self.all_histories['Train']['Accuracy'][1:], label='Train')
+        axs[2].plot(x_axis, self.all_histories['Validation']['Accuracy'][1:], label='Validation')
         axs[2].set_title("Accuracies")
         axs[2].legend()
 
+        plt.xticks(x_axis)
+        plt.xlabel('Epoch')
+
         plt.show()
+
+    def test_dataset(self, test_dataset):
+        """Tests the current model on the provided dataset."""
+        loader = torch.utils.data.DataLoader(
+            test_dataset, batch_size=self.batch_size, shuffle=True
+        )
+        _, f, a = self.validation_epoch(loader)
+
+        return f,a
 
     def save_model(self, model_name):
         """Saves the current state of the model. Automatically puts it in the correct folder using the proper file extensions.
