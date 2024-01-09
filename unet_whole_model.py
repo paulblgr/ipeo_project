@@ -11,11 +11,11 @@ import matplotlib.pyplot as plt
 import os
 
 class Model:
-    def __init__(self, model_name) -> None:
+    def __init__(self, model_name, lr) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.unet = UNet(n_channels=4, n_classes=1)
         self.unet.to(self.device)
-        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=4e-4)
+        self.optimizer = torch.optim.Adam(self.unet.parameters(), lr=lr)
         self.criterion = nn.BCEWithLogitsLoss()
         self.threshold = 0.
         self.model_name = model_name
@@ -35,6 +35,23 @@ class Model:
             Dictionary: Dictionary containing all the losses and F1-scores of the training.
         """
         return self.all_histories
+
+    def get_best_epoch(self):
+        """Returns the epoch with the best F1-score.
+
+        Returns:
+            int: Epoch with the best F1-score.
+        """
+        return np.argmax(self.all_histories["Validation"]["F1_score"])
+    
+    def get_best_f1_accuracy(self):
+        """Returns the F1-score and accuracy of the best epoch.
+
+        Returns:
+            _type_: F1-score and accuracy of the best epoch.
+        """
+        epoch = self.get_best_epoch()
+        return self.all_histories["Validation"]["F1_score"][epoch], self.all_histories["Validation"]["Accuracy"][epoch]
 
     def training_step(self, data, target):
         self.optimizer.zero_grad()
@@ -246,28 +263,30 @@ class Model:
 
     def plot_history(self):
 
-        x_axis = range(1,len(self.all_histories['Train']['Train loss']))
-        _, axs = plt.subplots(3, 1, figsize=(18, 10), sharex = True)
+        x_axis = range(1, len(self.all_histories['Train']['Train loss']))
+        _, axs = plt.subplots(3, 1, figsize=(18, 10), sharex=True)
 
-        axs[0].plot(x_axis,self.all_histories['Train']['Train loss'][1:], label='Train')
-        axs[0].plot(x_axis, self.all_histories['Validation']['Train loss'][1:], label='Validation')
+        color_loss = '#87BCDE'  # Blue color
+        color_other = '#805E73'  # Purple color
+
+        axs[0].plot(x_axis, self.all_histories['Train']['Train loss'][1:], label='Train', color=color_loss)
+        axs[0].plot(x_axis, self.all_histories['Validation']['Train loss'][1:], label='Validation', color=color_other)
         axs[0].set_title("Losses")
         axs[0].legend()
 
-        axs[1].plot(x_axis, self.all_histories['Train']['F1_score'][1:], label='Train')
-        axs[1].plot(x_axis, self.all_histories['Validation']['F1_score'][1:], label='Validation')
+        axs[1].plot(x_axis, self.all_histories['Train']['F1_score'][1:], label='Train', color=color_loss)
+        axs[1].plot(x_axis, self.all_histories['Validation']['F1_score'][1:], label='Validation', color=color_other)
         axs[1].set_title("F1 scores")
         axs[1].legend()
 
-        axs[2].plot(x_axis, self.all_histories['Train']['Accuracy'][1:], label='Train')
-        axs[2].plot(x_axis, self.all_histories['Validation']['Accuracy'][1:], label='Validation')
+        axs[2].plot(x_axis, self.all_histories['Train']['Accuracy'][1:], label='Train', color=color_loss)
+        axs[2].plot(x_axis, self.all_histories['Validation']['Accuracy'][1:], label='Validation', color=color_other)
         axs[2].set_title("Accuracies")
         axs[2].legend()
 
-        plt.xticks(x_axis)
+        # Setting x-axis ticks and label
+        plt.xticks(x_axis, ['Epoch {}'.format(i) for i in x_axis])
         plt.xlabel('Epoch')
-
-        plt.show()
 
     def test_dataset(self, test_dataset):
         """Tests the current model on the provided dataset."""
