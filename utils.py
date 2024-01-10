@@ -6,6 +6,7 @@ import torch
 import random
 from unet_whole_model import *
 import json
+import pandas as pd
 from PIL import Image
 
 # Convert arrays each array of a patch dict into a tensor
@@ -24,29 +25,34 @@ def load_paths_data(folder_path: str):
 
     return images
 
-def save_to_tif(tensor, file_path):
-    Image.fromarray((tensor.numpy()*255).astype(np.uint8)).save(file_path, format='TIFF')
 
 def fill_test_record(test_records, modelname, model, train_data_name, other_datasets):
-  test_records[modelname] = {}
-  test_records[modelname][train_data_name] = {}
+  new_test_record = {}
+  for name in test_records.columns:
+    new_test_record[name]= None
+
+  new_test_record["model"] = [modelname]
+  new_test_record["trained_on"] = [train_data_name]
+
 
   best_epoch = model.get_best_epoch()
-  f,a = model.get_best_f1_accuracy()
+  f,_ = model.get_best_f1_accuracy()
 
-  test_records[modelname][train_data_name]['best_epoch'] = int(best_epoch)
-  test_records[modelname][train_data_name]['f1'] = f
-  test_records[modelname][train_data_name]['accuracy'] = a
+  new_test_record['best_epoch'] = [int(best_epoch)]
+  new_test_record[train_data_name] = [f]
 
 
   best_epoch_model = Model(modelname, lr = 9e-4)
   best_epoch_model.load_model(f"{modelname}_epoch_{best_epoch}")
 
-  for dataset, name in zip(other_datasets):
-      test_records[modelname][dataset.name] = {}
-      test_records[modelname][dataset.name]['f1'],test_records[modelname][dataset.name]['accuracy']  = best_epoch_model.test_dataset(dataset)
+  for dataset in other_datasets:
+    f, _ = best_epoch_model.test_dataset(dataset)
+    new_test_record[dataset.name]  = [f]
   
-  with open('test_records.json', 'w') as json_file:
-    json.dump(test_records, json_file)
+
+  test_records = pd.concat([test_records,
+  pd.DataFrame(new_test_record)])
+
+  test_records.to_json('test_records.jsonl', orient = 'records', lines =True)
   
   return test_records

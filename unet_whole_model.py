@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import torch.utils.data
 from dataset import *
+from utils import *
 import json
 from unet_model import UNet
 from torcheval.metrics import BinaryF1Score as F1_score
@@ -26,7 +27,6 @@ class Model:
             "Validation": {"Train loss": [], "F1_score": [], "Accuracy" : []},
         }
         self.model_path = f"models/{self.model_name}/"
-        os.makedirs(self.model_path, exist_ok=True)
 
     def get_history(self):
         """Returns the training (and validation history if validation was used) of the current model.
@@ -186,6 +186,9 @@ class Model:
         total_size = len(dataset)
         val_size = int(0.15 * total_size)
         train_size = total_size - val_size
+
+        dataset.load_images_and_gts()
+
         train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
         train_loader = torch.utils.data.DataLoader(
             train_set, batch_size=self.batch_size, shuffle=True
@@ -229,23 +232,30 @@ class Model:
 
         return pred
     
-    def plot_prediction(self, img_dict, denormalize = True):
+    def plot_prediction(self, img_lab_dict):
         """Plots the input image and it's segmentation.
 
         Args:
             img (_type_): Input image to be segmented in tensor format
         """
-        normalized_img = img_dict[0]["normalized_patch"]
-        img = img_dict[0]["patch"]
-        gt = img_dict[1]["patch"].numpy()
+        img = img_lab_dict['img']
+        normalized_img = img_lab_dict['normalized_img']
+        
+        gt = img_lab_dict['gt']
 
         pred = self.predict(normalized_img) 
 
         normalized_rgb_img = (normalized_img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_img = (img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_pred = pred.numpy().astype(np.uint8).squeeze(0) * 255
-        rgb_gt = gt.astype(np.uint8).squeeze(0) * 255
+        rgb_gt = gt.numpy().astype(np.uint8).squeeze(0) * 255
         
+        accuracy = (pred == gt).sum().item() / (pred.numel())
+        false_negatives = ((pred != gt) & (gt == 1)).sum().item() 
+        false_positives = ((pred != gt) & (gt == 0)).sum().item() 
+        true_positives = ((pred == gt) & (gt == 1)).sum().item() 
+        f1 = 2 * true_positives / (2 * true_positives + false_positives + false_negatives)
+
         _ , axs = plt.subplots(1, 4, figsize=(20, 10))
         axs[0].imshow(rgb_img)
         axs[0].set_title("Image")
@@ -261,6 +271,9 @@ class Model:
         axs[3].axis("off")
         plt.show()
 
+        print(f"On this image: Accuracy: {accuracy:.5f}, F1-score: {f1:.5f}")
+    
+    
     def plot_history(self):
 
         x_axis = range(1, len(self.all_histories['Train']['Train loss']))
@@ -290,10 +303,14 @@ class Model:
 
     def test_dataset(self, test_dataset):
         """Tests the current model on the provided dataset."""
+        test_dataset.load_images_and_gts()
+        
         loader = torch.utils.data.DataLoader(
             test_dataset, batch_size=self.batch_size, shuffle=True
         )
         _, f, a = self.validation_epoch(loader)
+
+        test_dataset.deload()
 
         return f,a
 
@@ -306,7 +323,8 @@ class Model:
 
 
         path = self.model_path + "{:s}.{:s}"
-
+        os.makedirs(self.model_path, exist_ok=True)
+        
         torch.save(self.unet.state_dict(), path.format(model_name, "pth"))
         json_dict = json.dumps(self.all_histories)
         file = open(path.format(model_name, "json"), "w")
@@ -319,7 +337,7 @@ class Model:
         Args:
             model_name (_type_): Name of the model to load (automatic path finding as for save_model()).
         """
-        path = path = self.model_path + "{:s}.{:s}"
+        path = self.model_path + "{:s}.{:s}"
         self.unet.load_state_dict(
             torch.load(
                 path.format(model_name, "pth"),
