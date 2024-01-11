@@ -60,10 +60,9 @@ class PatchesDataset(torch.utils.data.Dataset):
         
         self.loaded_imgs = None
         self.loaded_gts = None
-        
+
         self.means = None
         self.stds = None
-        self.normalize = None
         
 
     def get_rio_image(self, img_dict):
@@ -85,7 +84,7 @@ class PatchesDataset(torch.utils.data.Dataset):
         if self.loaded_gts is None:
             raise Exception("Groundtruths not loaded")
         
-        return self.normalize((self.loaded_imgs[index])), (self.loaded_gts[index])
+        return self.loaded_imgs[index], self.loaded_gts[index]
     
     def get_at_pos(self, x, y):
         res = []
@@ -101,8 +100,6 @@ class PatchesDataset(torch.utils.data.Dataset):
                     'gt_dict' : self.target[i]
                 }
 
-                if self.normalize is not None:
-                    res_['normalized_img'] = self.normalize(img)
                 res.append(res_)
         return res
     
@@ -151,7 +148,6 @@ class PatchesDataset(torch.utils.data.Dataset):
         self.loaded_gts = [self.get_tensor_image(gt) for gt in tqdm(self.target,  desc = "Loading groundtruths")] 
       
       self.means, self.stds = self.compute_means_and_stds()
-      self.normalize = T.Normalize(mean = self.means, std = self.stds)
 
     def deload(self):
         self.loaded_imgs = None
@@ -173,7 +169,6 @@ class PatchesDataset(torch.utils.data.Dataset):
         stacked_tensor  = torch.stack(self.get_images(), axis = 0)
         means = torch.mean(stacked_tensor, axis =[0,2,3])
         stds = torch.std(stacked_tensor, axis = [0,2,3])
-        self.normalize = T.Normalize(mean = means, std = stds)
         
         return means, stds
 
@@ -182,8 +177,6 @@ class PatchesDataset(torch.utils.data.Dataset):
         all_new_gts = []
         all_new_imgs_dict = []
         all_new_gts_dict = []
-        augmented_data_path = f"glaciers_mapping_downsampled/{self.name}_augmented_data"
-        augmented_data_path_gt = f"glaciers_mapping_downsampled/{self.name}_augmented_data_gt"
         
         self.load_images_and_gts()
 
@@ -212,5 +205,3 @@ class PatchesDataset(torch.utils.data.Dataset):
         self.target.extend(all_new_gts_dict)
         self.loaded_imgs.extend(all_new_imgs)
         self.loaded_gts.extend(all_new_gts)
-
-        #self.means, self.stds = self.compute_means_and_stds()

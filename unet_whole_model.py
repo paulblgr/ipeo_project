@@ -7,6 +7,7 @@ from utils import *
 import json
 from unet_model import UNet
 from torcheval.metrics import BinaryF1Score as F1_score
+import torchvision.transforms as T
 from tqdm import tqdm
 import matplotlib.pyplot as plt 
 import os
@@ -27,6 +28,10 @@ class Model:
             "Validation": {"Train loss": [], "F1_score": [], "Accuracy" : []},
         }
         self.model_path = f"models/{self.model_name}/"
+
+        self.means = None
+        self.stds = None
+        self.normalize = None
 
     def get_history(self):
         """Returns the training (and validation history if validation was used) of the current model.
@@ -81,7 +86,7 @@ class Model:
         incorrect = 0 
         self.unet.train()
         for data, target in tqdm(data_loader):
-                data, target = data.to(self.device), target.to(self.device)
+                data, target = self.normalize(data).to(self.device), target.to(self.device)
                 loss, train_pred = self.training_step(data, target)
                 train_losses.append(loss.cpu().detach().numpy())
 
@@ -130,7 +135,7 @@ class Model:
         self.unet.eval()
         with torch.no_grad():
             for data, target in tqdm(data_loader):
-                  data, target = data.to(self.device), target.to(self.device)
+                  data, target = self.normalize(data).to(self.device), target.to(self.device)
                   loss, val_pred = self.evaluation_step(data, target)
                   val_losses.append(loss.cpu().detach().numpy())
 
@@ -179,15 +184,22 @@ class Model:
             )
 
 
-    def train(self, dataset,num_epochs=10):
+    def train(self, dataset,num_epochs=10, start_epoch = 1):
         """Trains the model using the provided data and target. Saves the history of the training.
         """
-        
+    
         total_size = len(dataset)
         val_size = int(0.15 * total_size)
         train_size = total_size - val_size
 
         dataset.load_images_and_gts()
+
+        self.means = dataset.means
+        self.stds = dataset.stds
+        self.normalize = T.Normalize(mean=self.means, std=self.stds) 
+
+        self.all_histories['means'] = self.means.tolist()
+        self.all_histories['stds'] = self.stds.tolist()
 
         train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
         train_loader = torch.utils.data.DataLoader(
@@ -203,7 +215,7 @@ class Model:
         self.add_history(t, f, a, "Validation")
         self.print_history(0,num_epochs)
 
-        for epoch in range(num_epochs):
+        for epoch in range(start_epoch-1,num_epochs):
             t, f, a = self.train_epoch(train_loader)
             self.add_history(t, f, a, "Train")
             t, f, a = self.validation_epoch(val_loader)
@@ -225,7 +237,7 @@ class Model:
         img_input = img.unsqueeze(0)
         self.unet.eval()
         with torch.no_grad():
-            pred = self.unet(img_input.to(self.device))
+            pred = self.unet(self.normalize(img_input).to(self.device))
         
         pred = pred.squeeze(1)
         pred = torch.where(pred < self.threshold, 0 ,1).cpu()
@@ -239,7 +251,7 @@ class Model:
             img (_type_): Input image to be segmented in tensor format
         """
         img = img_lab_dict['img']
-        normalized_img = img_lab_dict['normalized_img']
+        normalized_img = self.normalize(img_lab_dict['img'])
         
         gt = img_lab_dict['gt']
 
@@ -253,7 +265,14 @@ class Model:
         accuracy = (pred == gt).sum().item() / (pred.numel())
         false_negatives = ((pred != gt) & (gt == 1)).sum().item() 
         false_positives = ((pred != gt) & (gt == 0)).sum().item() 
-        true_positives = ((pred == gt) & (gt == 1)).sum().item() 
+        true_positives = ((pred == gt) & (gt == 1)).sum().item()
+        true_negatives = ((pred == gt) & (gt == 0)).sum().item()
+
+        print(pred.numel())
+        print(f"FN : {false_negatives}")
+        print(f"FP : {false_positives}")
+        print(f"TP : {true_positives}")
+        
         f1 = 2 * true_positives / (2 * true_positives + false_positives + false_negatives)
 
         _ , axs = plt.subplots(1, 4, figsize=(20, 10))
@@ -350,3 +369,6 @@ class Model:
         with open(path.format(model_name, "json")) as file:
             data = file.read()
             self.all_histories = json.loads(data)
+        self.means = torch.tensor(self.all_histories['means'])
+        self.stds = torch.tensor(self.all_histories['stds'])
+        self.normalize = T.Normalize(mean=self.means, std=self.stds) 
