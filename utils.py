@@ -36,22 +36,24 @@ def fill_test_record(test_records, modelname, model, train_data_name, other_data
 
 
   best_epoch = model.get_best_epoch()
-  f,_ = model.get_best_f1_accuracy()
+  f,a = model.get_best_f1_accuracy()
 
   new_test_record['best_epoch'] = [int(best_epoch)]
-  new_test_record[train_data_name] = [f]
+  new_test_record[f"{train_data_name}_f1"] = [f]
+  new_test_record[f"{train_data_name}_accuracy"] = [a]
 
 
-  best_epoch_model = Model(modelname, lr = 9e-4)
+  best_epoch_model = Model(modelname, lr = 9e-4) #lr not used here but necessary to instanciate a model
   best_epoch_model.load_model(f"{modelname}_epoch_{best_epoch}")
 
   for dataset in other_datasets:
-    f, _ = best_epoch_model.test_dataset(dataset)
-    new_test_record[dataset.name]  = [f]
+    f, a = best_epoch_model.test_dataset(dataset)
+    new_test_record[f"{dataset.name}_f1"]  = [f]
+    new_test_record[f"{dataset.name}_accuracy"]  = [a]
   
 
   test_records = pd.concat([test_records,
-  pd.DataFrame(new_test_record)])
+  pd.DataFrame(new_test_record)]).reset_index(drop=True)
 
   test_records.to_json('test_records.jsonl', orient = 'records', lines =True)
   

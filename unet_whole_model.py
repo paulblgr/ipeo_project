@@ -31,7 +31,7 @@ class Model:
 
         self.means = None
         self.stds = None
-        self.normalize = None
+        self.standardize = None
 
     def get_history(self):
         """Returns the training (and validation history if validation was used) of the current model.
@@ -47,7 +47,8 @@ class Model:
         Returns:
             int: Epoch with the best F1-score.
         """
-        return np.argmax(self.all_histories["Validation"]["F1_score"])
+        #selecting best epoch on maximizing sum on validation f1
+        return np.argmax(np.array(self.all_histories["Validation"]["F1_score"]))
     
     def get_best_f1_accuracy(self):
         """Returns the F1-score and accuracy of the best epoch.
@@ -86,7 +87,7 @@ class Model:
         incorrect = 0 
         self.unet.train()
         for data, target in tqdm(data_loader):
-                data, target = self.normalize(data).to(self.device), target.to(self.device)
+                data, target = self.standardize(data).to(self.device), target.to(self.device)
                 loss, train_pred = self.training_step(data, target)
                 train_losses.append(loss.cpu().detach().numpy())
 
@@ -135,7 +136,7 @@ class Model:
         self.unet.eval()
         with torch.no_grad():
             for data, target in tqdm(data_loader):
-                  data, target = self.normalize(data).to(self.device), target.to(self.device)
+                  data, target = self.standardize(data).to(self.device), target.to(self.device)
                   loss, val_pred = self.evaluation_step(data, target)
                   val_losses.append(loss.cpu().detach().numpy())
 
@@ -196,7 +197,7 @@ class Model:
 
         self.means = dataset.means
         self.stds = dataset.stds
-        self.normalize = T.Normalize(mean=self.means, std=self.stds) 
+        self.standardize = T.Normalize(mean=self.means, std=self.stds) 
 
         self.all_histories['means'] = self.means.tolist()
         self.all_histories['stds'] = self.stds.tolist()
@@ -237,7 +238,7 @@ class Model:
         img_input = img.unsqueeze(0)
         self.unet.eval()
         with torch.no_grad():
-            pred = self.unet(self.normalize(img_input).to(self.device))
+            pred = self.unet(self.standardize(img_input).to(self.device))
         
         pred = pred.squeeze(1)
         pred = torch.where(pred < self.threshold, 0 ,1).cpu()
@@ -251,13 +252,13 @@ class Model:
             img (_type_): Input image to be segmented in tensor format
         """
         img = img_lab_dict['img']
-        normalized_img = self.normalize(img_lab_dict['img'])
+        standardized_img = self.standardize(img_lab_dict['img'])
         
         gt = img_lab_dict['gt']
 
-        pred = self.predict(normalized_img) 
+        pred = self.predict(standardized_img) 
 
-        normalized_rgb_img = (normalized_img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
+        standardized_rgb_img = (standardized_img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_img = (img.numpy()[:3] * 255).astype(np.uint8).transpose(1, 2, 0)
         rgb_pred = pred.numpy().astype(np.uint8).squeeze(0) * 255
         rgb_gt = gt.numpy().astype(np.uint8).squeeze(0) * 255
@@ -266,21 +267,15 @@ class Model:
         false_negatives = ((pred != gt) & (gt == 1)).sum().item() 
         false_positives = ((pred != gt) & (gt == 0)).sum().item() 
         true_positives = ((pred == gt) & (gt == 1)).sum().item()
-        true_negatives = ((pred == gt) & (gt == 0)).sum().item()
 
-        print(pred.numel())
-        print(f"FN : {false_negatives}")
-        print(f"FP : {false_positives}")
-        print(f"TP : {true_positives}")
-        
         f1 = 2 * true_positives / (2 * true_positives + false_positives + false_negatives)
 
         _ , axs = plt.subplots(1, 4, figsize=(20, 10))
         axs[0].imshow(rgb_img)
         axs[0].set_title("Image")
         axs[0].axis("off")
-        axs[1].imshow(normalized_rgb_img)
-        axs[1].set_title("Normalized image")
+        axs[1].imshow(standardized_rgb_img)
+        axs[1].set_title("Standardized image")
         axs[1].axis("off")
         axs[2].imshow(rgb_pred, cmap='gray')
         axs[2].set_title("Prediction")
@@ -371,4 +366,4 @@ class Model:
             self.all_histories = json.loads(data)
         self.means = torch.tensor(self.all_histories['means'])
         self.stds = torch.tensor(self.all_histories['stds'])
-        self.normalize = T.Normalize(mean=self.means, std=self.stds) 
+        self.standardize = T.Normalize(mean=self.means, std=self.stds) 
